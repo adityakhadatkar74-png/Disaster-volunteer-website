@@ -1,0 +1,57 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function isAdmin() {
+      return signedIn() && userDoc(request.auth.uid).data.role == 'admin';
+    }
+
+    function isVolunteer() {
+      return signedIn() && userDoc(request.auth.uid).data.role == 'volunteer';
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    match /disasters/{disasterId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /tasks/{taskId} {
+      allow read: if signedIn();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isVolunteer()
+          && resource.data.assignedTo == request.auth.uid
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt']));
+    }
+
+    match /resources/{resourceId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isAdmin();
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['read']);
+      allow delete: if isAdmin();
+    }
+  }
+}
+
